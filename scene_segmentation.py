@@ -1,6 +1,5 @@
 import os
 import json
-import re
 from PyPDF2 import PdfReader
 from google import genai
 from google.genai import types
@@ -18,21 +17,21 @@ def extract_text(pdf_path="TheLittlePrince.pdf"):
     return "\n\n".join(page.extract_text() or "" for page in reader.pages)
 
 def extract_json_block(text: str) -> str:
-    """Pull the first {...} block from text."""
-    m = re.search(r"(\{(?:[^{}]|(?R))*\})", text, flags=re.DOTALL)
-    if not m:
-        raise ValueError("No JSON object found in response")
-    return m.group(1)
+    """
+    Pull out the first JSON array [...], from the response text.
+    """
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("No JSON array found in response")
+    return text[start:end+1]
 
 def segment_scenes(book_text: str, max_scenes=50):
     instruction = (
         "You are a storyboarding AI. Break the following book text into up to "
-        f"{max_scenes} micro-scenes. For each scene, return a JSON array of "
-        "objects with keys:\n"
-        "  id (two-digit),\n"
-        "  prompt (for a 5-sec video in storybook-illustration style),\n"
-        "  narration (one-sentence summary).\n"
-        "Output _only_ valid JSON."
+        f"{max_scenes} micro-scenes. Return _only_ a JSON array of objects "
+        "with keys: id (two-digit), prompt (5-sec storybook illustration), "
+        "narration (one sentence)."
     )
     response = client.models.generate_content(
         model="gemini-2.5-pro",
@@ -46,23 +45,24 @@ def segment_scenes(book_text: str, max_scenes=50):
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        print("⚠️ Raw Gemini response not JSON—attempting to extract block:")
-        print(raw[:500], "…")  # show first 500 chars
-        cleaned = extract_json_block(raw)
-        return json.loads(cleaned)
+        print("⚠️ Raw response not JSON, extracting [...] block…")
+        snippet = raw[:500].replace("\n", " ")
+        print("RAW SNIPPET:", snippet, "…")
+        clean = extract_json_block(raw)
+        return json.loads(clean)
 
 def main():
-    print("🔍 Extracting text from PDF…")
+    print("🔍 Extracting PDF text…")
     text = extract_text("TheLittlePrince.pdf")
 
-    print("🗂 Segmenting scenes with Gemini…")
+    print("🗂 Segmenting scenes…")
     scenes = segment_scenes(text)
 
     os.makedirs("4_output", exist_ok=True)
-    out_file = "4_output/scenes.json"
-    with open(out_file, "w") as f:
+    out_path = "4_output/scenes.json"
+    with open(out_path, "w") as f:
         json.dump(scenes, f, indent=2)
-    print(f"✅ Wrote {len(scenes)} scenes to {out_file}")
+    print(f"✅ Wrote {len(scenes)} scenes → {out_path}")
 
 if __name__ == "__main__":
     main()
